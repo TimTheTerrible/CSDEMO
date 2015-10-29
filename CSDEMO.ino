@@ -3,13 +3,30 @@
 **********************/
 
 // include the library code:
+#include <Audio.h>
 #include <Wire.h>
+#include <SPI.h>
+#include <SD.h>
+#include <SerialFlash.h>
+#include <Keypad.h>
 #include <Adafruit_MCP23017.h>
-#include <Adafruit_RGBLCDShield.h>
-#include "Keypad.h"
+#include "LiquidCrystal.h"
+#include "debugprint.h"
+
+// Sound stuff
+AudioPlaySdWav           playWav1;
+AudioOutputI2S           audioOutput;
+AudioConnection          patchCord1(playWav1, 0, audioOutput, 0);
+AudioConnection          patchCord2(playWav1, 1, audioOutput, 1);
+AudioControlSGTL5000     sgtl5000_1;
+
+// Use these with the audio adaptor board
+#define SDCARD_CS_PIN    10
+#define SDCARD_MOSI_PIN  7
+#define SDCARD_SCK_PIN   14
 
 // Display stuff
-Adafruit_RGBLCDShield lcd = Adafruit_RGBLCDShield();
+LiquidCrystal lcd(0);
 
 // These #defines make it easy to set the backlight color
 #define RED 0x1
@@ -23,13 +40,24 @@ Adafruit_RGBLCDShield lcd = Adafruit_RGBLCDShield();
 #define MAX_LINE_LEN   17
 
 // Sound stuff
-#define PIN_SND_BEEP           13
-#define PIN_SND_BOMB_PLANTED    9
-#define PIN_SND_BOMB_DEFUSED   10
-#define PIN_SND_T_WIN          11
-#define PIN_SND_CT_WIN         12
-#define PIN_SND_BOMB_DETONATED  0
-#define PIN_SND_ACTIVE          1
+#define SND_BEEP            0
+#define SND_LETS_GO         1
+#define SND_BOMB_PLANTED    2
+#define SND_BOMB_DEFUSED    3
+#define SND_T_WIN           4
+#define SND_CT_WIN          5
+#define SND_BOMB_DETONATED  6
+#define MAX_SOUNDS          7
+
+const char * fileNames[MAX_SOUNDS] = {
+  "T01.WAV",
+  "T02.WAV",
+  "T03.WAV",
+  "T04.WAV",
+  "T05.WAV",
+  "T06.WAV",
+  "T07.WAV",
+};
 
 // Keypad stuff
 const byte ROWS = 4; //four rows
@@ -41,8 +69,8 @@ const char keys[ROWS][COLS] = {
   {'*','0','#'}
 };
 
-byte rowPins[ROWS] = {5, 6, 7, 8}; //connect to the row pinouts of the keypad
-byte colPins[COLS] = {2, 3, 4}; //connect to the column pinouts of the keypad
+byte rowPins[ROWS] = {2, 1, 21, 20}; //connect to the row pinouts of the keypad
+byte colPins[COLS] = {5, 4, 3}; //connect to the column pinouts of the keypad
 
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 
@@ -68,7 +96,7 @@ Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 #define STATE_DISARMED  4
 #define STATE_DETONATED 5
 
-char * StateNames[NUM_STATES] = {
+const char * StateNames[NUM_STATES] = {
   "SAFE",
   "ARMING",
   "ARMED",
@@ -77,7 +105,7 @@ char * StateNames[NUM_STATES] = {
   "DETONATED"
 };
 
-long timeToGoBOOM ;
+unsigned long timeToGoBOOM ;
 int State;
 int oldState;
 char inputBuf[MAX_LINE_LEN] = "";
@@ -85,52 +113,59 @@ char armingCode[MAX_LINE_LEN] = "7355608";
 int oldKey = NO_KEY;
 
 // Main program
-void playSound(int snd) {
-  Serial.print("Playing sound ID: "); Serial.println(snd);
-  while ( digitalRead(PIN_SND_ACTIVE) == LOW )
-      delay(5);
 
-  digitalWrite(snd, LOW);
-  delay(150);
-  digitalWrite(snd, HIGH);
-  delay(150);
+void playSound(int snd) {
+  debugprint(DEBUG_TRACE,"Playing sound ID: %d ",snd);
+  
+  playWav1.play(fileNames[snd]);
+
+  // A brief delay for the library read WAV info
+  delay(5);
+
+  // Simply wait for the file to finish playing.
+  while (playWav1.isPlaying()) {
+    // uncomment these lines if you audio shield
+    // has the optional volume pot soldered
+    //float vol = analogRead(15);
+    //vol = vol / 1024;
+    // sgtl5000_1.volume(vol);
+  }
+  debugprint(DEBUG_TRACE, "...done!");
 }
 
 void checkTimer() {
 
   if ( millis() >= timeToGoBOOM and ( State == STATE_ARMED or State == STATE_DISARMING ) ) {
       State = STATE_DETONATED;
-      playSound(PIN_SND_BOMB_DETONATED);
+      playSound(SND_BOMB_DETONATED);
   }
 }
 
 void updateDisplay () {
   char line1[MAX_LINE_LEN] = "";
-  char line2[MAX_LINE_LEN] = "";
-  char buf[64] = ""; 
-  
+  char line2[MAX_LINE_LEN] = "";  
+
   long minutes = long( (timeToGoBOOM - millis() ) / 60000 );
-  char s_minutes[3]; sprintf(s_minutes, "%2d", minutes);
+  char s_minutes[3]; sprintf(s_minutes, "%2ld", minutes);
   long seconds = long( ( ( timeToGoBOOM - millis() ) / 1000 ) % 60 );
-  char s_seconds[3]; sprintf(s_seconds, "%2.2d", seconds);
+  char s_seconds[3]; sprintf(s_seconds, "%2.2ld", seconds);
 
 
   // Do a little debug...
   if ( State != oldState ) {
-    Serial.println("******************************");
-    sprintf(buf, "State changed to: %s", StateNames[State]); Serial.println(buf);
+    debugprint(DEBUG_TRACE,"******************************");
+    debugprint(DEBUG_TRACE, "State changed to: %s", StateNames[State]);
     oldState = State;
   }
 
 /*
   if ( State == STATE_ARMED or State == STATE_DISARMING ) {
-    Serial.println("Counting down:");
-    sprintf(buf, "State: %s", StateNames[State]); Serial.println(buf);
-    sprintf(buf, "Time left: %s:%s", s_minutes, s_seconds); Serial.println(buf);
-    sprintf(buf, "timeToGoBOOM = %lu", timeToGoBOOM); Serial.println(buf);
-    sprintf(buf, "millis() = %lu", millis()); Serial.println(buf);
-    sprintf(buf, "millis left = %lu", timeToGoBOOM - millis()); Serial.println(buf);
-    Serial.println();
+    debugprint(DEBUG_TRACE,"Counting down:");
+    debugprint(DEBUG_TRACE, "State: %s", StateNames[State]);
+    debugprint(DEBUG_TRACE, "Time left: %s:%s", s_minutes, s_seconds);
+    debugprint(DEBUG_TRACE, "timeToGoBOOM = %lu", timeToGoBOOM);
+    debugprint(DEBUG_TRACE, "millis() = %lu", millis());
+    debugprint(DEBUG_TRACE, "millis left = %lu", timeToGoBOOM - millis());
   }
 */
 
@@ -183,10 +218,10 @@ void handleInput() {
   key = keypad.getKey();
   if ( key != NO_KEY and key != oldKey ) {
 
-    Serial.print("Key pressed: "); Serial.println(key);
+    debugprint(DEBUG_TRACE,"Key pressed: %d", key);
 
     // TODO: Play key beep sound
-    playSound(PIN_SND_BEEP);
+    playSound(SND_BEEP);
   
     // Handle the input
     switch ( State ) {
@@ -201,10 +236,10 @@ void handleInput() {
           // Did they enter the right code?
           if ( strncmp(inputBuf, armingCode, MAX_LINE_LEN) == 0 ) {
             State = STATE_ARMED;
-            playSound(PIN_SND_BOMB_PLANTED);
+            playSound(SND_BOMB_PLANTED);
             timeToGoBOOM = millis() + 300000;
-            Serial.println("handleInput() set State to STATE_ARMED"); 
-            Serial.print("handleInput() set timetoGoBOOM to "); Serial.println(timeToGoBOOM);
+            debugprint(DEBUG_TRACE,"handleInput() set State to STATE_ARMED"); 
+            debugprint(DEBUG_TRACE,"handleInput() set timetoGoBOOM to %ld", timeToGoBOOM);
           }
           else
             State = STATE_SAFE;
@@ -221,17 +256,17 @@ void handleInput() {
           State = STATE_DISARMING;
           memset(inputBuf, 0x0, MAX_LINE_LEN);
           timeToGoBOOM = millis() + 30000;
-          Serial.println("handleInput() set State to STATE_ARMED"); 
-          Serial.print("handleInput() set timetoGoBOOM to "); Serial.println(timeToGoBOOM);
+          debugprint(DEBUG_TRACE,"handleInput() set State to STATE_ARMED"); 
+          debugprint(DEBUG_TRACE,"handleInput() set timetoGoBOOM to %ld", timeToGoBOOM);
         break;
       case STATE_DISARMING:
         if ( key == KEY_POUND ) {
           if ( strncmp(inputBuf, armingCode, MAX_LINE_LEN) == 0 ) {
             State = STATE_DISARMED;
-            playSound(PIN_SND_BOMB_DEFUSED);
+            playSound(SND_BOMB_DEFUSED);
             timeToGoBOOM = 0;
-            Serial.println("handleInput() set State to STATE_DISARMED"); 
-            Serial.println("handleInput() set timetoGoBOOM to 0");
+            debugprint(DEBUG_TRACE,"handleInput() set State to STATE_DISARMED"); 
+            debugprint(DEBUG_TRACE,"handleInput() set timetoGoBOOM to 0");
           }
           else
             State = STATE_ARMED;
@@ -246,20 +281,20 @@ void handleInput() {
       case STATE_DISARMED:
         if ( key == KEY_POUND ) {
           State = STATE_SAFE;
-          playSound(PIN_SND_CT_WIN);
+          playSound(SND_CT_WIN);
         }
         break;
       case STATE_DETONATED:
         if ( key == KEY_POUND ) {
           State = STATE_SAFE;
-          playSound(PIN_SND_T_WIN);
+          playSound(SND_T_WIN);
         }
         break;
       default:
         break;
     }
 
-    Serial.print("inputBuf = '"); Serial.print(inputBuf); Serial.println("'");
+    debugprint(DEBUG_TRACE,"inputBuf = '%s'", inputBuf);
   }
 
   oldKey = key;
@@ -269,30 +304,25 @@ void setup() {
   // Debugging output
   Serial.begin(9600);
 
-  // Set up the sound module...
-  pinMode(PIN_SND_BEEP, OUTPUT);
-  digitalWrite(PIN_SND_BEEP, HIGH);
+  // Set up the sound...
+  AudioMemory(20);
 
-  pinMode(PIN_SND_T_WIN, OUTPUT);
-  digitalWrite(PIN_SND_T_WIN, HIGH);
+  sgtl5000_1.enable();
+  sgtl5000_1.volume(0.5);
 
-  pinMode(PIN_SND_CT_WIN, OUTPUT);
-  digitalWrite(PIN_SND_CT_WIN, HIGH);
-
-  pinMode(PIN_SND_BOMB_DEFUSED, OUTPUT);
-  digitalWrite(PIN_SND_BOMB_DEFUSED, HIGH);
-
-  pinMode(PIN_SND_BOMB_PLANTED, OUTPUT);
-  digitalWrite(PIN_SND_BOMB_PLANTED, HIGH);
-
-  pinMode(PIN_SND_BOMB_DETONATED, OUTPUT);
-  digitalWrite(PIN_SND_BOMB_DETONATED, HIGH);
-
-  pinMode(PIN_SND_ACTIVE, INPUT);
+  SPI.setMOSI(SDCARD_MOSI_PIN);
+  SPI.setSCK(SDCARD_SCK_PIN);
+  if (!(SD.begin(SDCARD_CS_PIN))) {
+    // stop here, but print a message repetitively
+    while (1) {
+      debugprint(DEBUG_TRACE,"Unable to access the SD card");
+      delay(500);
+    }
+  }
 
   // Set up the LCD...
   lcd.begin(16, 2);
-  lcd.setBacklight(WHITE);
+  lcd.setBacklight(HIGH);
 
   // Draw the welcome message...
   lcd.setCursor(0, 0);
@@ -302,14 +332,15 @@ void setup() {
   delay(2000);
   lcd.clear();
 
-  //playSound(PIN_SND_BOMB_PLANTED);
+  //playSound(SND_BOMB_PLANTED);
   
   // Set up the state of the bomb...
   State = STATE_SAFE;
   oldState = State;
 
-  Serial.println("Starting!");
-  Serial.print("State: STATE_SAFE");
+  playSound(SND_LETS_GO);
+  debugprint(DEBUG_TRACE,"Starting!");
+  debugprint(DEBUG_TRACE,"State: STATE_SAFE");
 }
 
 void loop() {
