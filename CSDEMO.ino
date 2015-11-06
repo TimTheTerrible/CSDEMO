@@ -1,5 +1,6 @@
 /*********************
-  COUNTER STRIKE BOMB
+  COUNTER STRIKE
+  Demolition Toy
 **********************/
 
 // include the library code:
@@ -41,13 +42,23 @@ LiquidCrystal lcd(0);
 
 // Sound stuff
 #define SND_BEEP            0
-#define SND_LETS_GO         1
+#define SND_LETS_MOVE_OUT   1
 #define SND_BOMB_PLANTED    2
 #define SND_BOMB_DEFUSED    3
 #define SND_T_WIN           4
 #define SND_CT_WIN          5
 #define SND_BOMB_DETONATED  6
 #define MAX_SOUNDS          7
+
+const char * soundNames[MAX_SOUNDS] = {
+  "Beep",
+  "Let's Move Out",
+  "Bomb Planted",
+  "Bomb Defused",
+  "Terrorists Win",
+  "Counter-Terrorists Win",
+  "KABOOM!!!",
+};
 
 const char * fileNames[MAX_SOUNDS] = {
   "T01.WAV",
@@ -88,13 +99,14 @@ Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 #define KEY_POUND     0x23
 
 // State stuff
-#define NUM_STATES      6
-#define STATE_SAFE      0
-#define STATE_ARMING    1
-#define STATE_ARMED     2
-#define STATE_DISARMING 3
-#define STATE_DISARMED  4
-#define STATE_DETONATED 5
+#define NUM_STATES       7
+#define STATE_SAFE       0
+#define STATE_ARMING     1
+#define STATE_ARMED      2
+#define STATE_DISARMING  3
+#define STATE_DISARMED   4
+#define STATE_DETONATED  5
+#define STATE_SCOREBOARD 6
 
 const char * StateNames[NUM_STATES] = {
   "SAFE",
@@ -102,39 +114,29 @@ const char * StateNames[NUM_STATES] = {
   "ARMED",
   "DISARMING",
   "DISARMED",
-  "DETONATED"
+  "DETONATED",
+  "SCOREBOARD"
 };
 
+// Global Variables
 unsigned long timeToGoBOOM ;
 int State;
 int oldState;
 char inputBuf[MAX_LINE_LEN] = "";
 char armingCode[MAX_LINE_LEN] = "7355608";
 int oldKey = NO_KEY;
+int scoreCounterTerrorists = 0;
+int scoreTerrorists = 0;
 
 // Main program
 
 void playSound(int snd) {
-  debugprint(DEBUG_TRACE,"Playing sound ID: %d ",snd);
+  debugprint(DEBUG_TRACE,"Playing sound ID: %d '%s'", snd, soundNames[snd]);
   
   playWav1.play(fileNames[snd]);
-
-  // A brief delay for the library read WAV info
-  delay(5);
-
-  // Simply wait for the file to finish playing.
-  while (playWav1.isPlaying()) {
-    // uncomment these lines if you audio shield
-    // has the optional volume pot soldered
-    //float vol = analogRead(15);
-    //vol = vol / 1024;
-    // sgtl5000_1.volume(vol);
-  }
-  debugprint(DEBUG_TRACE, "...done!");
 }
 
 void checkTimer() {
-
   if ( millis() >= timeToGoBOOM and ( State == STATE_ARMED or State == STATE_DISARMING ) ) {
       State = STATE_DETONATED;
       playSound(SND_BOMB_DETONATED);
@@ -195,6 +197,10 @@ void updateDisplay () {
       sprintf(line1, "%-16s", "DETONATED!");
       sprintf(line2, "%-16s", "PUSH # TO RESET");
       break;
+    case STATE_SCOREBOARD:
+      sprintf(line1, "%2d %-s", scoreCounterTerrorists, "CT Score");
+      sprintf(line2, "%2d %-s", scoreTerrorists, "Terrorists");
+      break;
     default:
       strcpy(line1, "INVALID STATE");
       strcpy(line2, "BOMB IS BROKEN!");
@@ -206,58 +212,88 @@ void updateDisplay () {
   lcd.print(line1);
   lcd.setCursor(0, 1);
   lcd.print(line2);
-  // if ( in_input )
-  //lcd.setCursor(0, 1);
-  //lcd.cursor();
 }
 
 void handleInput() {  
   char key = NO_KEY;
 
-  // Handle input
+  // Get a key from the keypad...
   key = keypad.getKey();
+  
   if ( key != NO_KEY and key != oldKey ) {
 
     debugprint(DEBUG_TRACE,"Key pressed: %d", key);
 
-    // TODO: Play key beep sound
     playSound(SND_BEEP);
   
     // Handle the input
     switch ( State ) {
       case STATE_SAFE:
-        if ( key == KEY_POUND )
+        if ( key == KEY_POUND ) {
           State = STATE_ARMING;
           memset(inputBuf, 0x0, MAX_LINE_LEN);
+        }
+        else if ( key == KEY_ASTERISK ) {
+          State = STATE_SCOREBOARD;
+        }
         break;
       case STATE_ARMING:
         if ( key == KEY_POUND ) {
           
-          // Did they enter the right code?
-          if ( strncmp(inputBuf, armingCode, MAX_LINE_LEN) == 0 ) {
+          // Have they entered enough numbers?
+          debugprint(DEBUG_TRACE, "strlen(inputBuf) = %d", strlen(inputBuf));
+          if ( strlen(inputBuf) > 6 ) {
+            
+            // Save the new arming code...
+            strncpy(armingCode, inputBuf, MAX_LINE_LEN);
+            
+            // Set the bomb to armed...
             State = STATE_ARMED;
+            
+            // Play an appropriate sound...
             playSound(SND_BOMB_PLANTED);
+            
+            // Set the timer for five minutes...
             timeToGoBOOM = millis() + 300000;
-            debugprint(DEBUG_TRACE,"handleInput() set State to STATE_ARMED"); 
-            debugprint(DEBUG_TRACE,"handleInput() set timetoGoBOOM to %ld", timeToGoBOOM);
+
+            // Show your work...
+            debugprint(DEBUG_TRACE, "handleInput() set armingCode to '%s'", armingCode);
+            debugprint(DEBUG_TRACE, "handleInput() set State to STATE_ARMED"); 
+            debugprint(DEBUG_TRACE, "handleInput() set timetoGoBOOM to %ld", timeToGoBOOM);
           }
           else
+            // Otherwise, reset to safe and make them start over...
             State = STATE_SAFE;
         }
         else if ( key == KEY_ASTERISK ) {
+          // Aterisk is "cancel"...
           State = STATE_SAFE;
         }
         else {
-          strncat(inputBuf, &key, 1);
+          if ( strlen(inputBuf) > 6 ) {
+            playSound(SND_BEEP); delay(150); playSound(SND_BEEP);
+          }
+          else {
+            strncat(inputBuf, &key, 1);
+          }
         }
         break;
       case STATE_ARMED:
-        if ( key == KEY_POUND )
+        if ( key == KEY_POUND ) {
           State = STATE_DISARMING;
+
+          // Clear the input buffer...
           memset(inputBuf, 0x0, MAX_LINE_LEN);
-          timeToGoBOOM = millis() + 30000;
+
+          // Tamper with MY bomb, will you?!?!
+          // If there's more than 30 seconds left, reduce the timer to 30 seconds.
+          // If there's less, tough shit.
+          if ( timeToGoBOOM - millis() > 30000 )
+            timeToGoBOOM = millis() + 30000;
+
           debugprint(DEBUG_TRACE,"handleInput() set State to STATE_ARMED"); 
           debugprint(DEBUG_TRACE,"handleInput() set timetoGoBOOM to %ld", timeToGoBOOM);
+        }
         break;
       case STATE_DISARMING:
         if ( key == KEY_POUND ) {
@@ -268,27 +304,38 @@ void handleInput() {
             debugprint(DEBUG_TRACE,"handleInput() set State to STATE_DISARMED"); 
             debugprint(DEBUG_TRACE,"handleInput() set timetoGoBOOM to 0");
           }
-          else
+          else {
             State = STATE_ARMED;
+          }
         }
         else if ( key == KEY_ASTERISK ) {
           State = STATE_ARMED;
         }
         else {
-          strncat(inputBuf, &key, 1);
+          if ( strlen(inputBuf) > 6 ) {
+            playSound(SND_BEEP); delay(150); playSound(SND_BEEP);
+          }
+          else {
+            strncat(inputBuf, &key, 1);
+          }
         }
         break;
       case STATE_DISARMED:
         if ( key == KEY_POUND ) {
           State = STATE_SAFE;
           playSound(SND_CT_WIN);
+          scoreCounterTerrorists += 1;
         }
         break;
       case STATE_DETONATED:
         if ( key == KEY_POUND ) {
           State = STATE_SAFE;
           playSound(SND_T_WIN);
+          scoreTerrorists += 1;
         }
+        break;
+      case STATE_SCOREBOARD:
+        State = STATE_SAFE;
         break;
       default:
         break;
@@ -338,7 +385,7 @@ void setup() {
   State = STATE_SAFE;
   oldState = State;
 
-  playSound(SND_LETS_GO);
+  playSound(SND_LETS_MOVE_OUT);
   debugprint(DEBUG_TRACE,"Starting!");
   debugprint(DEBUG_TRACE,"State: STATE_SAFE");
 }
