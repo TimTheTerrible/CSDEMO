@@ -246,6 +246,11 @@ void updateDisplay () {
   lcd.print(line1);
   lcd.setCursor(0, 1);
   lcd.print(line2);
+
+  // If the idle timer has expired, shut off the backlight...
+  if ( millis() > idleTimer ) {
+    lcd.setBacklight(LOW);
+  }
 }
 
 void handleInput() {  
@@ -323,14 +328,12 @@ void handleInput() {
           State = STATE_DISARMING;
 
           // Check to see if a defuse kit is attached...
-          if ( digitalRead(PIN_DEFUSE) == HIGH ) {
-            debugprint(DEBUG_TRACE, "Defuse kit detected!");
-            defuseKitPresent = TRUE;
-          }
-          else {
-            debugprint(DEBUG_TRACE, "Defuse kit NOT detected!");
-            defuseKitPresent = FALSE;
-          }
+          defuseKitPresent = digitalRead(PIN_DEFUSE);
+          
+          // Override missing hardware...
+          defuseKitPresent = FALSE;
+          
+          debugprint(DEBUG_TRACE, "Defuse kit %sdetected!", defuseKitPresent ? "" : "NOT ");
   
           // Clear the input buffer...
           memset(inputBuf, 0x0, MAX_LINE_LEN);
@@ -362,11 +365,11 @@ void handleInput() {
           State = STATE_ARMED;
         }
         else {
-          if ( strlen(inputBuf) > 6 ) {
-            playSound(SND_BEEP, FALSE); delay(150); playSound(SND_BEEP, FALSE);
+          if ( strlen(inputBuf) < 7 ) {
+            strncat(inputBuf, &key, 1);
           }
           else {
-            strncat(inputBuf, &key, 1);
+            playSound(SND_BEEP, FALSE); delay(150); playSound(SND_BEEP, FALSE);
           }
         }
         break;
@@ -452,10 +455,5 @@ void loop() {
   
   // Check Timer
   checkTimer();
-
-  // If the idle timer has expired, shut off the backlight...
-  if ( millis() > idleTimer ) {
-    lcd.setBacklight(LOW);    
-  }
 
 }
