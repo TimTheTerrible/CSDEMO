@@ -14,6 +14,11 @@
 #include "LiquidCrystal.h"
 #include "debugprint.h"
 
+// Debug stuff
+#define DEBUG_INPUT 0x0100
+#define DEBUG_SOUND 0x0200
+#define DEBUG_STATE 0x0400
+
 // Sound stuff
 AudioPlaySdWav           playWav1;
 AudioOutputI2S           audioOutput;
@@ -110,8 +115,8 @@ Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 #define STATE_SAFE       0
 #define STATE_ARMING     1
 #define STATE_ARMED      2
-#define STATE_DISARMING  3
-#define STATE_DISARMED   4
+#define STATE_DEFUSING  3
+#define STATE_DEFUSED   4
 #define STATE_DETONATED  5
 #define STATE_SCOREBOARD 6
 
@@ -120,8 +125,8 @@ const char * StateNames[NUM_STATES] = {
   "SAFE",
   "ARMING",
   "ARMED",
-  "DISARMING",
-  "DISARMED",
+  "DEFUSING",
+  "DEFUSED",
   "DETONATED",
   "SCOREBOARD"
 };
@@ -144,14 +149,14 @@ long idleTimer;
 // Main program
 
 void playSound(int snd, bool blocking) {
-  debugprint(DEBUG_TRACE, "Playing sound ID: %d '%s'", snd, soundNames[snd]);
+  debugprint(DEBUG_SOUND, "Playing sound ID: %d '%s'", snd, soundNames[snd]);
   
   playWav1.play(fileNames[snd]);
   
   // A brief delay for the library read WAV info
   delay(5);
   
-  debugprint(DEBUG_TRACE, "Blocking is %s", blocking ? "on" : "off");
+  debugprint(DEBUG_SOUND, "Blocking is %s", blocking ? "on" : "off");
 
   if ( blocking ) {
     // Wait for the sound to play all the way through...
@@ -160,11 +165,11 @@ void playSound(int snd, bool blocking) {
     }
   }
 
-  debugprint(DEBUG_TRACE, "done!");
+  debugprint(DEBUG_SOUND, "done!");
 }
 
 void checkTimer() {
-  if ( millis() >= timeToGoBOOM and ( State == STATE_ARMED or State == STATE_DISARMING ) ) {
+  if ( millis() >= timeToGoBOOM and ( State == STATE_ARMED or State == STATE_DEFUSING ) ) {
       State = STATE_DETONATED;
       playSound(SND_BOMB_DETONATED, TRUE);
   }
@@ -175,15 +180,15 @@ void updateDisplay () {
   char s_seconds[3];
 
   // Only calculate the remaining time if we're going to need it...
-  if ( State == STATE_ARMED || State == STATE_DISARMING ) {
+  if ( State == STATE_ARMED || State == STATE_DEFUSING ) {
     sprintf(s_minutes, "%2ld", (timeToGoBOOM - millis() ) / 60000);
     sprintf(s_seconds, "%2.2ld", ( ( timeToGoBOOM - millis() ) / 1000 ) % 60 );
   }
 
   // Do a little debug...
   if ( State != oldState ) {
-    debugprint(DEBUG_TRACE, "******************************");
-    debugprint(DEBUG_TRACE, "State changed to: %s", StateNames[State]);
+    debugprint(DEBUG_STATE, "******************************");
+    debugprint(DEBUG_STATE, "State changed to: %s", StateNames[State]);
     oldState = State;
   }
 
@@ -210,7 +215,7 @@ void updateDisplay () {
       sprintf(line1, "%-16s", "PUSH # TO DEFUSE");
       break;
       
-    case STATE_DISARMING:
+    case STATE_DEFUSING:
       // If the defuse kit is present, just give them the whole code...
       if ( defuseKitPresent ) {
         strncpy(hint, armingCode, MAX_LINE_LEN);
@@ -229,7 +234,7 @@ void updateDisplay () {
       //delay(75);
       break;
       
-    case STATE_DISARMED:
+    case STATE_DEFUSED:
       sprintf(line0, "%-16s", "DEFUSED!");
       sprintf(line1, "%-16s", "PUSH # TO RESET");
       break;
@@ -277,9 +282,9 @@ void handleInput() {
     // Set the idle timeout...
     idleTimer = millis() + IDLE_TIMEOUT;
 
-    debugprint(DEBUG_TRACE, "Key pressed: %d", key);
-    debugprint(DEBUG_TRACE, "Before: strlen(inputBuf) = %d", strlen(inputBuf));
-    debugprint(DEBUG_TRACE, "Before: inputBuf = '%s'", inputBuf);
+    debugprint(DEBUG_INPUT, "Key pressed: %d", key);
+    debugprint(DEBUG_INPUT, "Before: strlen(inputBuf) = %d", strlen(inputBuf));
+    debugprint(DEBUG_INPUT, "Before: inputBuf = '%s'", inputBuf);
 
     playSound(SND_BEEP, FALSE);
   
@@ -315,9 +320,9 @@ void handleInput() {
             timeToGoBOOM = millis() + 300000;
 
             // Show your work...
-            debugprint(DEBUG_TRACE, "handleInput() set armingCode to '%s'", armingCode);
-            debugprint(DEBUG_TRACE, "handleInput() set State to STATE_ARMED"); 
-            debugprint(DEBUG_TRACE, "handleInput() set timetoGoBOOM to %ld", timeToGoBOOM);
+            debugprint(DEBUG_INPUT, "handleInput() set armingCode to '%s'", armingCode);
+            debugprint(DEBUG_INPUT, "handleInput() set State to STATE_ARMED"); 
+            debugprint(DEBUG_INPUT, "handleInput() set timetoGoBOOM to %ld", timeToGoBOOM);
           }
           else {
             // Otherwise, reset to safe and make them start over...
@@ -341,7 +346,7 @@ void handleInput() {
         
       case STATE_ARMED:
         if ( key == KEY_POUND ) {
-          State = STATE_DISARMING;
+          State = STATE_DEFUSING;
 
           // Check to see if a defuse kit is attached...
           defuseKitPresent = digitalRead(PIN_DEFUSE);
@@ -360,16 +365,16 @@ void handleInput() {
           if ( timeToGoBOOM - millis() > 30000 )
             timeToGoBOOM = millis() + 30000;
 
-          debugprint(DEBUG_TRACE, "handleInput() set State to STATE_ARMED"); 
-          debugprint(DEBUG_TRACE, "handleInput() set timetoGoBOOM to %ld", timeToGoBOOM);
+          debugprint(DEBUG_INPUT, "handleInput() set State to STATE_ARMED"); 
+          debugprint(DEBUG_INPUT, "handleInput() set timetoGoBOOM to %ld", timeToGoBOOM);
         }
         break;
         
-      case STATE_DISARMING:
+      case STATE_DEFUSING:
         if ( key == KEY_POUND ) {
           // Have they entered the correct code?
-          if ( strncmp(inputBuf, armingCode, MAX_LINE_LEN) == 0 ) {
-            State = STATE_DISARMED;
+          if ( strncmp(inputBuf, armingCode, strlen(inputBuf)) == 0 ) {
+            State = STATE_DEFUSED;
 
             // Play an appropriate sound...
             playSound(SND_BOMB_DEFUSED, TRUE);
@@ -377,8 +382,8 @@ void handleInput() {
             // Set the timer (not sure this does anything?)
             timeToGoBOOM = 0;
             
-            debugprint(DEBUG_TRACE, "handleInput() set State to STATE_DISARMED"); 
-            debugprint(DEBUG_TRACE, "handleInput() set timetoGoBOOM to 0");
+            debugprint(DEBUG_INPUT, "handleInput() set State to STATE_DEFUSED"); 
+            debugprint(DEBUG_INPUT, "handleInput() set timetoGoBOOM to 0");
           }
           else {
             State = STATE_ARMED;
@@ -401,7 +406,7 @@ void handleInput() {
         
 
       // The next two cases end the round...
-      case STATE_DISARMED:
+      case STATE_DEFUSED:
         if ( key == KEY_POUND ) {
           State = STATE_SAFE;
 
@@ -437,8 +442,8 @@ void handleInput() {
     }
     
     // oldKey = key doesn't go here, or else you can't type the same key twice in a row EVER!!!
-    debugprint(DEBUG_TRACE, "After: strlen(inputBuf) = %d", strlen(inputBuf));
-    debugprint(DEBUG_TRACE, "After: inputBuf = '%s'", inputBuf);
+    debugprint(DEBUG_INPUT, "After: strlen(inputBuf) = %d", strlen(inputBuf));
+    debugprint(DEBUG_INPUT, "After: inputBuf = '%s'", inputBuf);
 
   }
 
@@ -447,6 +452,7 @@ void handleInput() {
 
 void setup() {
   // Debugging output
+  Debug = Debug | DEBUG_STATE;
   Serial.begin(9600);
 
   // Set up the sound...
@@ -460,7 +466,7 @@ void setup() {
   if (!(SD.begin(SDCARD_CS_PIN))) {
     // stop here, but print a message repetitively
     while (1) {
-      debugprint(DEBUG_TRACE, "Unable to access the SD card");
+      debugprint(DEBUG_ERROR, "Unable to access the SD card");
       delay(500);
     }
   }
@@ -485,7 +491,7 @@ void setup() {
   oldState = State;
 
   debugprint(DEBUG_TRACE, "Starting!");
-  debugprint(DEBUG_TRACE, "State: STATE_SAFE");
+  debugprint(DEBUG_STATE, "State: STATE_SAFE");
   playSound(SND_LETS_MOVE_OUT, TRUE);
 
   // Set the display idle timeout...
