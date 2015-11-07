@@ -38,6 +38,9 @@ LiquidCrystal lcd(0);
 #define VIOLET 0x5
 #define WHITE 0x7
 
+// Display backlight timeout
+#define IDLE_TIMEOUT 30000;
+
 #define MAX_LINE_LEN   17
 
 // Sound stuff
@@ -118,6 +121,11 @@ const char * StateNames[NUM_STATES] = {
   "SCOREBOARD"
 };
 
+// Defuse Kit Override
+#define PIN_DEFUSE 8
+bool defuseKitPresent = FALSE;
+
+
 // Global Variables
 unsigned long timeToGoBOOM ;
 int State;
@@ -127,26 +135,38 @@ char armingCode[MAX_LINE_LEN] = "7355608";
 int oldKey = NO_KEY;
 int scoreCounterTerrorists = 0;
 int scoreTerrorists = 0;
+long idleTimer;
 
 // Main program
 
-void playSound(int snd) {
+void playSound(int snd, bool blocking) {
   debugprint(DEBUG_TRACE,"Playing sound ID: %d '%s'", snd, soundNames[snd]);
   
   playWav1.play(fileNames[snd]);
+  
+  // A brief delay for the library read WAV info
+  delay(5);
+  
+  debugprint(DEBUG_TRACE, "Blocking is %s", blocking ? "on" : "off");
+
+  if ( blocking ) {
+    // Wait for the sound to play all the way through...
+    while (playWav1.isPlaying()) {
+      delay(5);
+    }
+  }
+
+  debugprint(DEBUG_TRACE, "done!");
 }
 
 void checkTimer() {
   if ( millis() >= timeToGoBOOM and ( State == STATE_ARMED or State == STATE_DISARMING ) ) {
       State = STATE_DETONATED;
-      playSound(SND_BOMB_DETONATED);
+      playSound(SND_BOMB_DETONATED, TRUE);
   }
 }
 
 void updateDisplay () {
-  char line1[MAX_LINE_LEN] = "";
-  char line2[MAX_LINE_LEN] = "";  
-
   long minutes = long( (timeToGoBOOM - millis() ) / 60000 );
   char s_minutes[3]; sprintf(s_minutes, "%2ld", minutes);
   long seconds = long( ( ( timeToGoBOOM - millis() ) / 1000 ) % 60 );
@@ -172,6 +192,11 @@ void updateDisplay () {
 */
 
   // Prepare the display contents...
+  char line1[MAX_LINE_LEN];
+  char line2[MAX_LINE_LEN];  
+  int slot, oldSlot;
+  char hint[MAX_LINE_LEN];
+  
   switch ( State ) {
     case STATE_SAFE:
       sprintf(line1, "%-16s", "SAFE");
@@ -179,15 +204,24 @@ void updateDisplay () {
       break;
     case STATE_ARMING:
       sprintf(line1, "%-16s", "ARM CODE");
-      sprintf(line2, "> %-14s", inputBuf);
+      sprintf(line2, ">%-7s<       ", inputBuf);
       break;
     case STATE_ARMED:
       sprintf(line1, "%-11s%s:%s", "ARMED", s_minutes, s_seconds);
       sprintf(line2, "%-16s", "PUSH # TO DEFUSE");
       break;
     case STATE_DISARMING:
-      sprintf(line1, "%-11s%s:%s", "DEFUSE CODE", s_minutes, s_seconds);
-      sprintf(line2, "> %-14s", inputBuf);
+      if ( defuseKitPresent ) {
+        sprintf(hint, "%s", armingCode);
+      }
+      else {
+        sprintf(hint, "%s", "       ");
+        slot = millis() % 7;      
+        hint[slot] = armingCode[slot];
+      }
+      sprintf(line1, ">%-7s<  %s:%s", hint, s_minutes, s_seconds);
+      sprintf(line2, ">%-7s<       ", inputBuf);
+      delay(75);
       break;
     case STATE_DISARMED:
       sprintf(line1, "%-16s", "DEFUSED!");
@@ -222,9 +256,15 @@ void handleInput() {
   
   if ( key != NO_KEY and key != oldKey ) {
 
+    // Turn on the display backlight...
+    lcd.setBacklight(HIGH);
+    
+    // Set the idle timeout...
+    idleTimer = millis() + IDLE_TIMEOUT;
+
     debugprint(DEBUG_TRACE,"Key pressed: %d", key);
 
-    playSound(SND_BEEP);
+    playSound(SND_BEEP, FALSE);
   
     // Handle the input
     switch ( State ) {
@@ -251,7 +291,7 @@ void handleInput() {
             State = STATE_ARMED;
             
             // Play an appropriate sound...
-            playSound(SND_BOMB_PLANTED);
+            playSound(SND_BOMB_PLANTED, TRUE);
             
             // Set the timer for five minutes...
             timeToGoBOOM = millis() + 300000;
@@ -271,7 +311,7 @@ void handleInput() {
         }
         else {
           if ( strlen(inputBuf) > 6 ) {
-            playSound(SND_BEEP); delay(150); playSound(SND_BEEP);
+            playSound(SND_BEEP, FALSE); delay(150); playSound(SND_BEEP, FALSE);
           }
           else {
             strncat(inputBuf, &key, 1);
@@ -282,6 +322,16 @@ void handleInput() {
         if ( key == KEY_POUND ) {
           State = STATE_DISARMING;
 
+          // Check to see if a defuse kit is attached...
+          if ( digitalRead(PIN_DEFUSE) == HIGH ) {
+            debugprint(DEBUG_TRACE, "Defuse kit detected!");
+            defuseKitPresent = TRUE;
+          }
+          else {
+            debugprint(DEBUG_TRACE, "Defuse kit NOT detected!");
+            defuseKitPresent = FALSE;
+          }
+  
           // Clear the input buffer...
           memset(inputBuf, 0x0, MAX_LINE_LEN);
 
@@ -299,7 +349,7 @@ void handleInput() {
         if ( key == KEY_POUND ) {
           if ( strncmp(inputBuf, armingCode, MAX_LINE_LEN) == 0 ) {
             State = STATE_DISARMED;
-            playSound(SND_BOMB_DEFUSED);
+            playSound(SND_BOMB_DEFUSED, TRUE);
             timeToGoBOOM = 0;
             debugprint(DEBUG_TRACE,"handleInput() set State to STATE_DISARMED"); 
             debugprint(DEBUG_TRACE,"handleInput() set timetoGoBOOM to 0");
@@ -313,7 +363,7 @@ void handleInput() {
         }
         else {
           if ( strlen(inputBuf) > 6 ) {
-            playSound(SND_BEEP); delay(150); playSound(SND_BEEP);
+            playSound(SND_BEEP, FALSE); delay(150); playSound(SND_BEEP, FALSE);
           }
           else {
             strncat(inputBuf, &key, 1);
@@ -323,14 +373,14 @@ void handleInput() {
       case STATE_DISARMED:
         if ( key == KEY_POUND ) {
           State = STATE_SAFE;
-          playSound(SND_CT_WIN);
+          playSound(SND_CT_WIN, TRUE);
           scoreCounterTerrorists += 1;
         }
         break;
       case STATE_DETONATED:
         if ( key == KEY_POUND ) {
           State = STATE_SAFE;
-          playSound(SND_T_WIN);
+          playSound(SND_T_WIN, TRUE);
           scoreTerrorists += 1;
         }
         break;
@@ -375,19 +425,22 @@ void setup() {
   lcd.setCursor(0, 0);
   lcd.print("Counter Strike");
   lcd.setCursor(0, 1);
-  lcd.print("Bomb V1.0");
+  lcd.print("Bomb V2.2");
   delay(2000);
   lcd.clear();
 
-  //playSound(SND_BOMB_PLANTED);
+  // Set up the defusal override
+  pinMode(PIN_DEFUSE, INPUT_PULLUP);
   
   // Set up the state of the bomb...
   State = STATE_SAFE;
   oldState = State;
 
-  playSound(SND_LETS_MOVE_OUT);
+  playSound(SND_LETS_MOVE_OUT, TRUE);
   debugprint(DEBUG_TRACE,"Starting!");
   debugprint(DEBUG_TRACE,"State: STATE_SAFE");
+
+  idleTimer = millis() + IDLE_TIMEOUT;
 }
 
 void loop() {
@@ -399,5 +452,10 @@ void loop() {
   
   // Check Timer
   checkTimer();
+
+  // If the idle timer has expired, shut off the backlight...
+  if ( millis() > idleTimer ) {
+    lcd.setBacklight(LOW);    
+  }
 
 }
