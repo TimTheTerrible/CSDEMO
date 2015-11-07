@@ -30,17 +30,18 @@ AudioControlSGTL5000     sgtl5000_1;
 LiquidCrystal lcd(0);
 
 // These #defines make it easy to set the backlight color
-#define RED 0x1
-#define YELLOW 0x3
-#define GREEN 0x2
-#define TEAL 0x6
-#define BLUE 0x4
-#define VIOLET 0x5
-#define WHITE 0x7
+#define RED     0x1
+#define YELLOW  0x3
+#define GREEN   0x2
+#define TEAL    0x6
+#define BLUE    0x4
+#define VIOLET  0x5
+#define WHITE   0x7
 
 // Display backlight timeout
 #define IDLE_TIMEOUT 30000;
 
+// The length of the display lines (plus null terminator)
 #define MAX_LINE_LEN   17
 
 // Sound stuff
@@ -53,6 +54,7 @@ LiquidCrystal lcd(0);
 #define SND_BOMB_DETONATED  6
 #define MAX_SOUNDS          7
 
+// Pretty debugging is a valid objective
 const char * soundNames[MAX_SOUNDS] = {
   "Beep",
   "Let's Move Out",
@@ -63,6 +65,7 @@ const char * soundNames[MAX_SOUNDS] = {
   "KABOOM!!!",
 };
 
+// The names of the files on the SD card
 const char * fileNames[MAX_SOUNDS] = {
   "T01.WAV",
   "T02.WAV",
@@ -83,11 +86,12 @@ const char keys[ROWS][COLS] = {
   {'*','0','#'}
 };
 
-byte rowPins[ROWS] = {2, 1, 21, 20}; //connect to the row pinouts of the keypad
-byte colPins[COLS] = {5, 4, 3}; //connect to the column pinouts of the keypad
+byte rowPins[ROWS] = {2, 1, 21, 20};  //connect to the row pinouts of the keypad
+byte colPins[COLS] = {5, 4, 3};       //connect to the column pinouts of the keypad
 
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 
+// The ASCII codes for the keys
 #define KEY_ZERO      0x39
 #define KEY_ONE       0x30
 #define KEY_TWO       0x31
@@ -111,6 +115,7 @@ Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 #define STATE_DETONATED  5
 #define STATE_SCOREBOARD 6
 
+// More pretty debugging
 const char * StateNames[NUM_STATES] = {
   "SAFE",
   "ARMING",
@@ -124,7 +129,6 @@ const char * StateNames[NUM_STATES] = {
 // Defuse Kit Override
 #define PIN_DEFUSE 8
 bool defuseKitPresent = FALSE;
-
 
 // Global Variables
 unsigned long timeToGoBOOM ;
@@ -140,7 +144,7 @@ long idleTimer;
 // Main program
 
 void playSound(int snd, bool blocking) {
-  debugprint(DEBUG_TRACE,"Playing sound ID: %d '%s'", snd, soundNames[snd]);
+  debugprint(DEBUG_TRACE, "Playing sound ID: %d '%s'", snd, soundNames[snd]);
   
   playWav1.play(fileNames[snd]);
   
@@ -167,29 +171,21 @@ void checkTimer() {
 }
 
 void updateDisplay () {
-  long minutes = long( (timeToGoBOOM - millis() ) / 60000 );
-  char s_minutes[3]; sprintf(s_minutes, "%2ld", minutes);
-  long seconds = long( ( ( timeToGoBOOM - millis() ) / 1000 ) % 60 );
-  char s_seconds[3]; sprintf(s_seconds, "%2.2ld", seconds);
+  char s_minutes[3];
+  char s_seconds[3];
 
+  // Only calculate the remaining time if we're going to need it...
+  if ( State == STATE_ARMED || State == STATE_DISARMING ) {
+    sprintf(s_minutes, "%2ld", (timeToGoBOOM - millis() ) / 60000);
+    sprintf(s_seconds, "%2.2ld", ( ( timeToGoBOOM - millis() ) / 1000 ) % 60 );
+  }
 
   // Do a little debug...
   if ( State != oldState ) {
-    debugprint(DEBUG_TRACE,"******************************");
+    debugprint(DEBUG_TRACE, "******************************");
     debugprint(DEBUG_TRACE, "State changed to: %s", StateNames[State]);
     oldState = State;
   }
-
-/*
-  if ( State == STATE_ARMED or State == STATE_DISARMING ) {
-    debugprint(DEBUG_TRACE,"Counting down:");
-    debugprint(DEBUG_TRACE, "State: %s", StateNames[State]);
-    debugprint(DEBUG_TRACE, "Time left: %s:%s", s_minutes, s_seconds);
-    debugprint(DEBUG_TRACE, "timeToGoBOOM = %lu", timeToGoBOOM);
-    debugprint(DEBUG_TRACE, "millis() = %lu", millis());
-    debugprint(DEBUG_TRACE, "millis left = %lu", timeToGoBOOM - millis());
-  }
-*/
 
   // Prepare the display contents...
   char line0[MAX_LINE_LEN];
@@ -198,49 +194,61 @@ void updateDisplay () {
   char hint[MAX_LINE_LEN];
   
   switch ( State ) {
+    
     case STATE_SAFE:
       sprintf(line0, "%-16s", "SAFE");
       sprintf(line1, "%-16s", "PUSH # TO ARM");
       break;
+      
     case STATE_ARMING:
       sprintf(line0, "%-16s", "ARM CODE");
       sprintf(line1, ">%-7s<       ", inputBuf);
       break;
+      
     case STATE_ARMED:
       sprintf(line0, "%-11s%s:%s", "ARMED", s_minutes, s_seconds);
       sprintf(line1, "%-16s", "PUSH # TO DEFUSE");
       break;
+      
     case STATE_DISARMING:
       // If the defuse kit is present, just give them the whole code...
       if ( defuseKitPresent ) {
-        sprintf(hint, "%s", armingCode);
+        strncpy(hint, armingCode, MAX_LINE_LEN);
       }
       // Otherwise, give them just one digit every 142.8571428571 milliseconds...
       else {
-        sprintf(hint, "%s", "       ");
+        strcpy(hint, "       ");
         slot = millis() % 7;      
         hint[slot] = armingCode[slot];
       }
       sprintf(line0, ">%-7s<  %s:%s", hint, s_minutes, s_seconds);
       sprintf(line1, ">%-7s<       ", inputBuf);
+      // Wait a moment to allow the player to see the hint
+      // The need for this seems to come and go. It makes the keypad sluggish.
+      // Maybe an interrupt would be a better solution.
       //delay(75);
       break;
+      
     case STATE_DISARMED:
       sprintf(line0, "%-16s", "DEFUSED!");
       sprintf(line1, "%-16s", "PUSH # TO RESET");
       break;
+      
     case STATE_DETONATED:
       sprintf(line0, "%-16s", "DETONATED!");
       sprintf(line1, "%-16s", "PUSH # TO RESET");
       break;
+      
     case STATE_SCOREBOARD:
       sprintf(line0, "%2d %-s", scoreCounterTerrorists, "CT Score");
       sprintf(line1, "%2d %-s", scoreTerrorists, "Terrorists");
       break;
+      
     default:
       strcpy(line0, "INVALID STATE");
       strcpy(line1, "BOMB IS BROKEN!");
       break;
+      
   }
 
   // Update the display...
@@ -269,12 +277,15 @@ void handleInput() {
     // Set the idle timeout...
     idleTimer = millis() + IDLE_TIMEOUT;
 
-    debugprint(DEBUG_TRACE,"Key pressed: %d", key);
+    debugprint(DEBUG_TRACE, "Key pressed: %d", key);
+    debugprint(DEBUG_TRACE, "Before: strlen(inputBuf) = %d", strlen(inputBuf));
+    debugprint(DEBUG_TRACE, "Before: inputBuf = '%s'", inputBuf);
 
     playSound(SND_BEEP, FALSE);
   
-    // Handle the input
+    // Handle the input according to current state...
     switch ( State ) {
+      
       case STATE_SAFE:
         if ( key == KEY_POUND ) {
           State = STATE_ARMING;
@@ -284,11 +295,11 @@ void handleInput() {
           State = STATE_SCOREBOARD;
         }
         break;
+        
       case STATE_ARMING:
         if ( key == KEY_POUND ) {
           
           // Have they entered enough numbers?
-          debugprint(DEBUG_TRACE, "strlen(inputBuf) = %d", strlen(inputBuf));
           if ( strlen(inputBuf) > 6 ) {
             
             // Save the new arming code...
@@ -308,23 +319,26 @@ void handleInput() {
             debugprint(DEBUG_TRACE, "handleInput() set State to STATE_ARMED"); 
             debugprint(DEBUG_TRACE, "handleInput() set timetoGoBOOM to %ld", timeToGoBOOM);
           }
-          else
+          else {
             // Otherwise, reset to safe and make them start over...
             State = STATE_SAFE;
+          }
         }
         else if ( key == KEY_ASTERISK ) {
-          // Aterisk is "cancel"...
+          // Asterisk is "cancel"...
           State = STATE_SAFE;
         }
         else {
-          if ( strlen(inputBuf) > 6 ) {
-            playSound(SND_BEEP, FALSE); delay(150); playSound(SND_BEEP, FALSE);
+          // Are they trying to enter too many digits?
+          if ( strlen(inputBuf) < 7 ) {
+            strncat(inputBuf, &key, 1);
           }
           else {
-            strncat(inputBuf, &key, 1);
+            playSound(SND_BEEP, FALSE); delay(150); playSound(SND_BEEP, FALSE);
           }
         }
         break;
+        
       case STATE_ARMED:
         if ( key == KEY_POUND ) {
           State = STATE_DISARMING;
@@ -346,27 +360,36 @@ void handleInput() {
           if ( timeToGoBOOM - millis() > 30000 )
             timeToGoBOOM = millis() + 30000;
 
-          debugprint(DEBUG_TRACE,"handleInput() set State to STATE_ARMED"); 
-          debugprint(DEBUG_TRACE,"handleInput() set timetoGoBOOM to %ld", timeToGoBOOM);
+          debugprint(DEBUG_TRACE, "handleInput() set State to STATE_ARMED"); 
+          debugprint(DEBUG_TRACE, "handleInput() set timetoGoBOOM to %ld", timeToGoBOOM);
         }
         break;
+        
       case STATE_DISARMING:
         if ( key == KEY_POUND ) {
+          // Have they entered the correct code?
           if ( strncmp(inputBuf, armingCode, MAX_LINE_LEN) == 0 ) {
             State = STATE_DISARMED;
+
+            // Play an appropriate sound...
             playSound(SND_BOMB_DEFUSED, TRUE);
+
+            // Set the timer (not sure this does anything?)
             timeToGoBOOM = 0;
-            debugprint(DEBUG_TRACE,"handleInput() set State to STATE_DISARMED"); 
-            debugprint(DEBUG_TRACE,"handleInput() set timetoGoBOOM to 0");
+            
+            debugprint(DEBUG_TRACE, "handleInput() set State to STATE_DISARMED"); 
+            debugprint(DEBUG_TRACE, "handleInput() set timetoGoBOOM to 0");
           }
           else {
             State = STATE_ARMED;
           }
         }
         else if ( key == KEY_ASTERISK ) {
+          // Asterisk is "cancel"
           State = STATE_ARMED;
         }
         else {
+          // Are they trying to enter too many digits?
           if ( strlen(inputBuf) < 7 ) {
             strncat(inputBuf, &key, 1);
           }
@@ -375,28 +398,48 @@ void handleInput() {
           }
         }
         break;
+        
+
+      // The next two cases end the round...
       case STATE_DISARMED:
         if ( key == KEY_POUND ) {
           State = STATE_SAFE;
+
+          // Play an appropriate sound...
           playSound(SND_CT_WIN, TRUE);
+
+          // Update the score...
           scoreCounterTerrorists += 1;
         }
         break;
+        
       case STATE_DETONATED:
         if ( key == KEY_POUND ) {
           State = STATE_SAFE;
+
+          // Play an appropriate sound...
           playSound(SND_T_WIN, TRUE);
+
+          // Update the score...
           scoreTerrorists += 1;
         }
         break;
+        
       case STATE_SCOREBOARD:
+        // Any key exits scoreboard mode...
         State = STATE_SAFE;
         break;
+        
       default:
+        debugprint(DEBUG_ERROR, "Invalid state detected: '%ld'", State);
         break;
+        
     }
+    
+    // oldKey = key doesn't go here, or else you can't type the same key twice in a row EVER!!!
+    debugprint(DEBUG_TRACE, "After: strlen(inputBuf) = %d", strlen(inputBuf));
+    debugprint(DEBUG_TRACE, "After: inputBuf = '%s'", inputBuf);
 
-    debugprint(DEBUG_TRACE,"inputBuf = '%s'", inputBuf);
   }
 
   oldKey = key;
@@ -417,7 +460,7 @@ void setup() {
   if (!(SD.begin(SDCARD_CS_PIN))) {
     // stop here, but print a message repetitively
     while (1) {
-      debugprint(DEBUG_TRACE,"Unable to access the SD card");
+      debugprint(DEBUG_TRACE, "Unable to access the SD card");
       delay(500);
     }
   }
@@ -434,17 +477,18 @@ void setup() {
   delay(2000);
   lcd.clear();
 
-  // Set up the defusal override
+  // Set up the defuse kit override...
   pinMode(PIN_DEFUSE, INPUT_PULLUP);
   
   // Set up the state of the bomb...
   State = STATE_SAFE;
   oldState = State;
 
+  debugprint(DEBUG_TRACE, "Starting!");
+  debugprint(DEBUG_TRACE, "State: STATE_SAFE");
   playSound(SND_LETS_MOVE_OUT, TRUE);
-  debugprint(DEBUG_TRACE,"Starting!");
-  debugprint(DEBUG_TRACE,"State: STATE_SAFE");
 
+  // Set the display idle timeout...
   idleTimer = millis() + IDLE_TIMEOUT;
 }
 
@@ -457,5 +501,4 @@ void loop() {
   
   // Check Timer
   checkTimer();
-
 }
