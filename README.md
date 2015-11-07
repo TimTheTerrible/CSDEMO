@@ -1,5 +1,5 @@
 # CSDEMO
-An Arduino-based toy version of the Counter Strike demolotion charge
+An Arduino-based toy version of the Counter Strike demolition charge
 
 ## Overview
 This project grew out of a desire to make a Counter Strike-style
