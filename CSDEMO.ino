@@ -453,7 +453,7 @@ void handleInput() {
 void setup() {
   // Debugging output
   Debug = Debug | DEBUG_STATE;
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   // Set up the sound...
   AudioMemory(20);
