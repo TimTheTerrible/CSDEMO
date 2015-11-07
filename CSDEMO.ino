@@ -192,60 +192,62 @@ void updateDisplay () {
 */
 
   // Prepare the display contents...
-  char line1[MAX_LINE_LEN];
-  char line2[MAX_LINE_LEN];  
+  char line0[MAX_LINE_LEN];
+  char line1[MAX_LINE_LEN];  
   int slot, oldSlot;
   char hint[MAX_LINE_LEN];
   
   switch ( State ) {
     case STATE_SAFE:
-      sprintf(line1, "%-16s", "SAFE");
-      sprintf(line2, "%-16s", "PUSH # TO ARM");
+      sprintf(line0, "%-16s", "SAFE");
+      sprintf(line1, "%-16s", "PUSH # TO ARM");
       break;
     case STATE_ARMING:
-      sprintf(line1, "%-16s", "ARM CODE");
-      sprintf(line2, ">%-7s<       ", inputBuf);
+      sprintf(line0, "%-16s", "ARM CODE");
+      sprintf(line1, ">%-7s<       ", inputBuf);
       break;
     case STATE_ARMED:
-      sprintf(line1, "%-11s%s:%s", "ARMED", s_minutes, s_seconds);
-      sprintf(line2, "%-16s", "PUSH # TO DEFUSE");
+      sprintf(line0, "%-11s%s:%s", "ARMED", s_minutes, s_seconds);
+      sprintf(line1, "%-16s", "PUSH # TO DEFUSE");
       break;
     case STATE_DISARMING:
+      // If the defuse kit is present, just give them the whole code...
       if ( defuseKitPresent ) {
         sprintf(hint, "%s", armingCode);
       }
+      // Otherwise, give them just one digit every 142.8571428571 milliseconds...
       else {
         sprintf(hint, "%s", "       ");
         slot = millis() % 7;      
         hint[slot] = armingCode[slot];
       }
-      sprintf(line1, ">%-7s<  %s:%s", hint, s_minutes, s_seconds);
-      sprintf(line2, ">%-7s<       ", inputBuf);
-      delay(75);
+      sprintf(line0, ">%-7s<  %s:%s", hint, s_minutes, s_seconds);
+      sprintf(line1, ">%-7s<       ", inputBuf);
+      //delay(75);
       break;
     case STATE_DISARMED:
-      sprintf(line1, "%-16s", "DEFUSED!");
-      sprintf(line2, "%-16s", "PUSH # TO RESET");
+      sprintf(line0, "%-16s", "DEFUSED!");
+      sprintf(line1, "%-16s", "PUSH # TO RESET");
       break;
     case STATE_DETONATED:
-      sprintf(line1, "%-16s", "DETONATED!");
-      sprintf(line2, "%-16s", "PUSH # TO RESET");
+      sprintf(line0, "%-16s", "DETONATED!");
+      sprintf(line1, "%-16s", "PUSH # TO RESET");
       break;
     case STATE_SCOREBOARD:
-      sprintf(line1, "%2d %-s", scoreCounterTerrorists, "CT Score");
-      sprintf(line2, "%2d %-s", scoreTerrorists, "Terrorists");
+      sprintf(line0, "%2d %-s", scoreCounterTerrorists, "CT Score");
+      sprintf(line1, "%2d %-s", scoreTerrorists, "Terrorists");
       break;
     default:
-      strcpy(line1, "INVALID STATE");
-      strcpy(line2, "BOMB IS BROKEN!");
+      strcpy(line0, "INVALID STATE");
+      strcpy(line1, "BOMB IS BROKEN!");
       break;
   }
 
   // Update the display...
   lcd.setCursor(0, 0);
-  lcd.print(line1);
+  lcd.print(line0);
   lcd.setCursor(0, 1);
-  lcd.print(line2);
+  lcd.print(line1);
 
   // If the idle timer has expired, shut off the backlight...
   if ( millis() > idleTimer ) {
