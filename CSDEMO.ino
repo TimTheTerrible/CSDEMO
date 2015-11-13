@@ -149,6 +149,7 @@ long idleTimer;
 // Main program
 
 void playSound(int snd, bool blocking) {
+  debugprint(DEBUG_TRACE, "Entering playSound()...");
   debugprint(DEBUG_SOUND, "Playing sound ID: %d '%s'", snd, soundNames[snd]);
   
   playWav1.play(fileNames[snd]);
@@ -166,6 +167,7 @@ void playSound(int snd, bool blocking) {
   }
 
   debugprint(DEBUG_SOUND, "done!");
+  debugprint(DEBUG_TRACE, "Returning from playSound()");
 }
 
 void checkTimer() {
@@ -201,8 +203,8 @@ void updateDisplay () {
   switch ( State ) {
     
     case STATE_SAFE:
-      sprintf(line0, "%-16s", "SAFE");
-      sprintf(line1, "%-16s", "PUSH # TO ARM");
+      sprintf(line0, "%-16s", "PUSH # TO ARM");
+      sprintf(line1, "%-16s", "PUSH * FOR SCORE");
       break;
       
     case STATE_ARMING:
@@ -245,8 +247,8 @@ void updateDisplay () {
       break;
       
     case STATE_SCOREBOARD:
-      sprintf(line0, "%2d %-s", scoreCounterTerrorists, "CT Score");
-      sprintf(line1, "%2d %-s", scoreTerrorists, "Terrorists");
+      sprintf(line0, "%2d %-13s", scoreCounterTerrorists, "CT Team");
+      sprintf(line1, "%2d %-13s", scoreTerrorists, "Terrorists");
       break;
       
     default:
@@ -373,7 +375,7 @@ void handleInput() {
       case STATE_DEFUSING:
         if ( key == KEY_POUND ) {
           // Have they entered the correct code?
-          if ( strncmp(inputBuf, armingCode, strlen(inputBuf)) == 0 ) {
+          if ( strncmp(inputBuf, armingCode, strlen(armingCode)) == 0 ) {
             State = STATE_DEFUSED;
 
             // Play an appropriate sound...
@@ -452,7 +454,7 @@ void handleInput() {
 
 void setup() {
   // Debugging output
-  Debug = Debug | DEBUG_STATE;
+  Debug = DEBUG_ALL;
   Serial.begin(115200);
 
   // Set up the sound...
